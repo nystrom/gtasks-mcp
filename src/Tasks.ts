@@ -320,4 +320,59 @@ export class TaskActions {
       isError: false,
     };
   }
+
+  static async move(request: CallToolRequest, tasks: tasks_v1.Tasks) {
+    const sourceTaskListId = request.params.arguments?.sourceTaskListId as string;
+    const destinationTaskListId = request.params.arguments?.destinationTaskListId as string;
+    const taskId = request.params.arguments?.taskId as string;
+
+    if (!sourceTaskListId) {
+      throw new Error("Source task list ID is required");
+    }
+
+    if (!destinationTaskListId) {
+      throw new Error("Destination task list ID is required");
+    }
+
+    if (!taskId) {
+      throw new Error("Task ID is required");
+    }
+
+    // Get the task from the source list
+    const sourceTaskResponse = await tasks.tasks.get({
+      tasklist: sourceTaskListId,
+      task: taskId,
+    });
+
+    const sourceTask = sourceTaskResponse.data;
+
+    // Create a copy of the task in the destination list
+    const taskCopy = {
+      title: sourceTask.title,
+      notes: sourceTask.notes,
+      due: sourceTask.due,
+      status: sourceTask.status,
+    };
+
+    const destinationTaskResponse = await tasks.tasks.insert({
+      tasklist: destinationTaskListId,
+      requestBody: taskCopy,
+    });
+
+    // Delete the task from the source list
+    await tasks.tasks.delete({
+      tasklist: sourceTaskListId,
+      task: taskId,
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Task "${sourceTask.title}" moved from ${sourceTaskListId} to ${destinationTaskListId}. New task ID: ${destinationTaskResponse.data.id}`,
+        },
+      ],
+      isError: false,
+    };
+  }
 }

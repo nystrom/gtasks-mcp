@@ -14,6 +14,7 @@ import fs from "fs";
 import { google, tasks_v1 } from "googleapis";
 import path from "path";
 import { TaskActions, TaskResources } from "./Tasks.js";
+import { TaskListActions } from "./TaskLists.js";
 
 const tasks = google.tasks("v1");
 
@@ -238,6 +239,96 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["id", "uri"],
         },
       },
+      {
+        name: "list-tasklists",
+        description: "List all task lists in Google Tasks",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "create-tasklist",
+        description: "Create a new task list in Google Tasks",
+        inputSchema: {
+          type: "object",
+          properties: {
+            title: {
+              type: "string",
+              description: "Task list title",
+            },
+          },
+          required: ["title"],
+        },
+      },
+      {
+        name: "update-tasklist",
+        description: "Update a task list in Google Tasks",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Task list ID",
+            },
+            title: {
+              type: "string",
+              description: "Task list title",
+            },
+          },
+          required: ["id", "title"],
+        },
+      },
+      {
+        name: "delete-tasklist",
+        description: "Delete a task list in Google Tasks",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Task list ID",
+            },
+          },
+          required: ["id"],
+        },
+      },
+      {
+        name: "get-tasklist",
+        description: "Get details of a specific task list in Google Tasks",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Task list ID",
+            },
+          },
+          required: ["id"],
+        },
+      },
+      {
+        name: "move",
+        description: "Move a task from one task list to another in Google Tasks",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sourceTaskListId: {
+              type: "string",
+              description: "Source task list ID",
+            },
+            destinationTaskListId: {
+              type: "string",
+              description: "Destination task list ID",
+            },
+            taskId: {
+              type: "string",
+              description: "Task ID to move",
+            },
+          },
+          required: ["sourceTaskListId", "destinationTaskListId", "taskId"],
+        },
+      },
     ],
   };
 });
@@ -265,6 +356,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
   if (request.params.name === "clear") {
     const taskResult = await TaskActions.clear(request, tasks);
+    return taskResult;
+  }
+  if (request.params.name === "list-tasklists") {
+    const taskListResult = await TaskListActions.list(request, tasks);
+    return taskListResult;
+  }
+  if (request.params.name === "create-tasklist") {
+    const taskListResult = await TaskListActions.create(request, tasks);
+    return taskListResult;
+  }
+  if (request.params.name === "update-tasklist") {
+    const taskListResult = await TaskListActions.update(request, tasks);
+    return taskListResult;
+  }
+  if (request.params.name === "delete-tasklist") {
+    const taskListResult = await TaskListActions.delete(request, tasks);
+    return taskListResult;
+  }
+  if (request.params.name === "get-tasklist") {
+    const taskListResult = await TaskListActions.get(request, tasks);
+    return taskListResult;
+  }
+  if (request.params.name === "move") {
+    const taskResult = await TaskActions.move(request, tasks);
     return taskResult;
   }
   throw new Error("Tool not found");
