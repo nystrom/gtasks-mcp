@@ -87,6 +87,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "Search query",
             },
+            showCompleted: {
+              type: "boolean",
+              description: "Include completed tasks in search results",
+            },
+            showHidden: {
+              type: "boolean",
+              description: "Include hidden tasks in search results",
+            },
           },
           required: ["query"],
         },
@@ -100,6 +108,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             cursor: {
               type: "string",
               description: "Cursor for pagination",
+            },
+            showCompleted: {
+              type: "boolean",
+              description: "Include completed tasks in results",
+            },
+            showHidden: {
+              type: "boolean",
+              description: "Include hidden tasks in results",
             },
           },
         },
@@ -196,6 +212,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             due: {
               type: "string",
               description: "Due date",
+            },
+            links: {
+              type: "array",
+              description: "Task links",
+              items: {
+                type: "object",
+                properties: {
+                  type: {
+                    type: "string",
+                    description: "Link type",
+                  },
+                  description: {
+                    type: "string",
+                    description: "Link description",
+                  },
+                  link: {
+                    type: "string",
+                    description: "URL link",
+                  },
+                },
+              },
             },
           },
           required: ["id", "uri"],

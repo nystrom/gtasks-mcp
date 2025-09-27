@@ -93,7 +93,7 @@ export class TaskActions {
     return taskList.map((task) => this.formatTask(task)).join("\n");
   }
 
-  private static async _list(request: CallToolRequest, tasks: tasks_v1.Tasks) {
+  private static async _list(request: CallToolRequest, tasks: tasks_v1.Tasks, showCompleted: boolean = false, showHidden: boolean = false) {
     const taskListsResponse = await tasks.tasklists.list({
       maxResults: MAX_TASK_RESULTS,
     });
@@ -104,10 +104,20 @@ export class TaskActions {
     for (const taskList of taskLists) {
       if (taskList.id) {
         try {
-          const tasksResponse = await tasks.tasks.list({
+          const taskListParams: any = {
             tasklist: taskList.id,
             maxResults: MAX_TASK_RESULTS,
-          });
+          };
+
+          if (showCompleted) {
+            taskListParams.showCompleted = true;
+          }
+
+          if (showHidden) {
+            taskListParams.showHidden = true;
+          }
+
+          const tasksResponse = await tasks.tasks.list(taskListParams);
 
           const items = tasksResponse.data.items || [];
           allTasks = allTasks.concat(items);
@@ -162,6 +172,7 @@ export class TaskActions {
     const taskNotes = request.params.arguments?.notes as string;
     const taskStatus = request.params.arguments?.status as string;
     const taskDue = request.params.arguments?.due as string;
+    const taskLinks = request.params.arguments?.links as tasks_v1.Schema$Task["links"];
 
     if (!taskUri) {
       throw new Error("Task URI is required");
@@ -171,17 +182,45 @@ export class TaskActions {
       throw new Error("Task ID is required");
     }
 
+    // Fetch existing task data
+    const existingTaskResponse = await tasks.tasks.get({
+      tasklist: taskListId,
+      task: taskId,
+    });
+
+    const existingTask = existingTaskResponse.data;
+
+    // Handle status change to completed
+    let updatedCompleted = existingTask.completed;
+    if (taskStatus !== undefined && taskStatus === "completed" && existingTask.status !== "completed") {
+      updatedCompleted = new Date().toISOString();
+    } else if (taskStatus !== undefined && taskStatus === "needsAction" && existingTask.status === "completed") {
+      updatedCompleted = undefined;
+    }
+
+    // Merge partial updates with existing data
     const task = {
       id: taskId,
-      title: taskTitle,
-      notes: taskNotes,
-      status: taskStatus,
-      due: taskDue,
+      title: taskTitle !== undefined ? taskTitle : existingTask.title,
+      notes: taskNotes !== undefined ? taskNotes : existingTask.notes,
+      status: taskStatus !== undefined ? taskStatus : existingTask.status,
+      due: taskDue !== undefined ? taskDue : existingTask.due,
+      links: taskLinks !== undefined ? taskLinks : existingTask.links,
+      completed: updatedCompleted,
+      // Preserve other existing fields
+      etag: existingTask.etag,
+      kind: existingTask.kind,
+      selfLink: existingTask.selfLink,
+      parent: existingTask.parent,
+      position: existingTask.position,
+      hidden: existingTask.hidden,
+      deleted: existingTask.deleted,
+      updated: existingTask.updated,
     };
 
     const taskResponse = await tasks.tasks.update({
       tasklist: taskListId,
-      task: taskUri,
+      task: taskId,
       requestBody: task,
     });
 
@@ -197,7 +236,10 @@ export class TaskActions {
   }
 
   static async list(request: CallToolRequest, tasks: tasks_v1.Tasks) {
-    const allTasks = await this._list(request, tasks);
+    const showCompleted = request.params.arguments?.showCompleted as boolean || false;
+    const showHidden = request.params.arguments?.showHidden as boolean || false;
+
+    const allTasks = await this._list(request, tasks, showCompleted, showHidden);
     const taskList = this.formatTaskList(allTasks);
 
     return {
@@ -238,8 +280,10 @@ export class TaskActions {
 
   static async search(request: CallToolRequest, tasks: tasks_v1.Tasks) {
     const userQuery = request.params.arguments?.query as string;
+    const showCompleted = request.params.arguments?.showCompleted as boolean || false;
+    const showHidden = request.params.arguments?.showHidden as boolean || false;
 
-    const allTasks = await this._list(request, tasks);
+    const allTasks = await this._list(request, tasks, showCompleted, showHidden);
     const filteredItems = allTasks.filter(
       (task) =>
         task.title?.toLowerCase().includes(userQuery.toLowerCase()) ||
@@ -252,7 +296,7 @@ export class TaskActions {
       content: [
         {
           type: "text",
-          text: `Found ${allTasks.length} tasks:\n${taskList}`,
+          text: `Found ${filteredItems.length} matching tasks:\n${taskList}`,
         },
       ],
       isError: false,
