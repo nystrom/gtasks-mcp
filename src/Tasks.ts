@@ -5,6 +5,7 @@ import {
   ReadResourceRequest,
 } from "@modelcontextprotocol/sdk/types.js";
 import { GaxiosResponse } from "gaxios";
+import { GaxiosPromise } from "googleapis-common";
 import { tasks_v1 } from "googleapis";
 
 const MAX_TASK_RESULTS = 100;
@@ -13,10 +14,9 @@ export class TaskResources {
   static async read(request: ReadResourceRequest, tasks: tasks_v1.Tasks) {
     const taskId = request.params.uri.replace("gtasks:///", "");
 
-    const taskListsResponse: GaxiosResponse<tasks_v1.Schema$TaskLists> =
-      await tasks.tasklists.list({
-        maxResults: MAX_TASK_RESULTS,
-      });
+    const taskListsResponse = await tasks.tasklists.list({
+      maxResults: MAX_TASK_RESULTS,
+    });
 
     const taskLists = taskListsResponse.data.items || [];
     let task: tasks_v1.Schema$Task | null = null;
@@ -24,11 +24,10 @@ export class TaskResources {
     for (const taskList of taskLists) {
       if (taskList.id) {
         try {
-          const taskResponse: GaxiosResponse<tasks_v1.Schema$Task> =
-            await tasks.tasks.get({
-              tasklist: taskList.id,
-              task: taskId,
-            });
+          const taskResponse = await tasks.tasks.get({
+            tasklist: taskList.id,
+            task: taskId,
+          });
           task = taskResponse.data;
           break;
         } catch (error) {
