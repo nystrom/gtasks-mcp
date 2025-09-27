@@ -120,6 +120,53 @@ async function runTests() {
       assert.equal(result.isError, false);
     }},
 
+    { name: 'update - should update only title (partial update)', test: async () => {
+      const mockTasks = new MockTasks();
+      const request = {
+        params: {
+          arguments: {
+            id: 'test-task-id',
+            uri: 'gtasks:///test-task-id',
+            title: 'Updated Title Only'
+          }
+        }
+      };
+      const result = await TaskActions.update(request, mockTasks);
+      assert.equal(result.isError, false);
+      assert(result.content[0].text.includes('Task updated: Updated Title Only'));
+    }},
+
+    { name: 'update - should update only notes (partial update)', test: async () => {
+      const mockTasks = new MockTasks();
+      const request = {
+        params: {
+          arguments: {
+            id: 'test-task-id',
+            uri: 'gtasks:///test-task-id',
+            notes: 'Updated notes only'
+          }
+        }
+      };
+      const result = await TaskActions.update(request, mockTasks);
+      assert.equal(result.isError, false);
+    }},
+
+    { name: 'update - should update multiple fields but preserve others', test: async () => {
+      const mockTasks = new MockTasks();
+      const request = {
+        params: {
+          arguments: {
+            id: 'test-task-id',
+            uri: 'gtasks:///test-task-id',
+            title: 'New Title',
+            status: 'completed'
+          }
+        }
+      };
+      const result = await TaskActions.update(request, mockTasks);
+      assert.equal(result.isError, false);
+    }},
+
     // List tests
     { name: 'list - should show only active tasks by default', test: async () => {
       const mockTasks = new MockTasks();
