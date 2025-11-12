@@ -7,6 +7,7 @@ import {
 import { GaxiosResponse } from "gaxios";
 import { GaxiosPromise } from "googleapis-common";
 import { tasks_v1 } from "googleapis";
+import { withAuthRetry } from "./index.js";
 
 const MAX_TASK_RESULTS = 100;
 
@@ -14,9 +15,11 @@ export class TaskResources {
   static async read(request: ReadResourceRequest, tasks: tasks_v1.Tasks) {
     const taskId = request.params.uri.replace("gtasks:///", "");
 
-    const taskListsResponse = await tasks.tasklists.list({
-      maxResults: MAX_TASK_RESULTS,
-    });
+    const taskListsResponse = await withAuthRetry(() =>
+      tasks.tasklists.list({
+        maxResults: MAX_TASK_RESULTS,
+      })
+    );
 
     const taskLists = taskListsResponse.data.items || [];
     let task: tasks_v1.Schema$Task | null = null;
@@ -24,10 +27,12 @@ export class TaskResources {
     for (const taskList of taskLists) {
       if (taskList.id) {
         try {
-          const taskResponse = await tasks.tasks.get({
-            tasklist: taskList.id,
-            task: taskId,
-          });
+          const taskResponse = await withAuthRetry(() =>
+            tasks.tasks.get({
+              tasklist: taskList.id!,
+              task: taskId,
+            })
+          );
           task = taskResponse.data;
           break;
         } catch (error) {
@@ -56,9 +61,11 @@ export class TaskResources {
       params.pageToken = request.params.cursor;
     }
 
-    const taskListsResponse = await tasks.tasklists.list({
-      maxResults: MAX_TASK_RESULTS,
-    });
+    const taskListsResponse = await withAuthRetry(() =>
+      tasks.tasklists.list({
+        maxResults: MAX_TASK_RESULTS,
+      })
+    );
 
     const taskLists = taskListsResponse.data.items || [];
 
@@ -66,10 +73,12 @@ export class TaskResources {
     let nextPageToken = null;
 
     for (const taskList of taskLists) {
-      const tasksResponse = await tasks.tasks.list({
-        tasklist: taskList.id,
-        ...params,
-      });
+      const tasksResponse = await withAuthRetry(() =>
+        tasks.tasks.list({
+          tasklist: taskList.id,
+          ...params,
+        })
+      );
 
       const taskItems = tasksResponse.data.items || [];
       allTasks = allTasks.concat(taskItems);
@@ -93,9 +102,11 @@ export class TaskActions {
   }
 
   private static async _list(request: CallToolRequest, tasks: tasks_v1.Tasks, showCompleted: boolean = false, showHidden: boolean = false) {
-    const taskListsResponse = await tasks.tasklists.list({
-      maxResults: MAX_TASK_RESULTS,
-    });
+    const taskListsResponse = await withAuthRetry(() =>
+      tasks.tasklists.list({
+        maxResults: MAX_TASK_RESULTS,
+      })
+    );
 
     const taskLists = taskListsResponse.data.items || [];
     let allTasks: tasks_v1.Schema$Task[] = [];
@@ -116,7 +127,9 @@ export class TaskActions {
             taskListParams.showHidden = true;
           }
 
-          const tasksResponse = await tasks.tasks.list(taskListParams);
+          const tasksResponse = await withAuthRetry(() =>
+            tasks.tasks.list(taskListParams)
+          );
 
           const items = tasksResponse.data.items || [];
           allTasks = allTasks.concat(items);
@@ -146,10 +159,12 @@ export class TaskActions {
       due: taskDue,
     };
 
-    const taskResponse = await tasks.tasks.insert({
-      tasklist: taskListId,
-      requestBody: task,
-    });
+    const taskResponse = await withAuthRetry(() =>
+      tasks.tasks.insert({
+        tasklist: taskListId,
+        requestBody: task,
+      })
+    );
 
     return {
       content: [
@@ -182,10 +197,12 @@ export class TaskActions {
     }
 
     // Fetch existing task data
-    const existingTaskResponse = await tasks.tasks.get({
-      tasklist: taskListId,
-      task: taskId,
-    });
+    const existingTaskResponse = await withAuthRetry(() =>
+      tasks.tasks.get({
+        tasklist: taskListId,
+        task: taskId,
+      })
+    );
 
     const existingTask = existingTaskResponse.data;
 
@@ -217,11 +234,13 @@ export class TaskActions {
       updated: existingTask.updated,
     };
 
-    const taskResponse = await tasks.tasks.update({
-      tasklist: taskListId,
-      task: taskId,
-      requestBody: task,
-    });
+    const taskResponse = await withAuthRetry(() =>
+      tasks.tasks.update({
+        tasklist: taskListId,
+        task: taskId,
+        requestBody: task,
+      })
+    );
 
     return {
       content: [
@@ -261,10 +280,12 @@ export class TaskActions {
       throw new Error("Task URI is required");
     }
 
-    await tasks.tasks.delete({
-      tasklist: taskListId,
-      task: taskId,
-    });
+    await withAuthRetry(() =>
+      tasks.tasks.delete({
+        tasklist: taskListId,
+        task: taskId,
+      })
+    );
 
     return {
       content: [
@@ -306,9 +327,11 @@ export class TaskActions {
     const taskListId =
       (request.params.arguments?.taskListId as string) || "@default";
 
-    await tasks.tasks.clear({
-      tasklist: taskListId,
-    });
+    await withAuthRetry(() =>
+      tasks.tasks.clear({
+        tasklist: taskListId,
+      })
+    );
 
     return {
       content: [
@@ -339,10 +362,12 @@ export class TaskActions {
     }
 
     // Get the task from the source list
-    const sourceTaskResponse = await tasks.tasks.get({
-      tasklist: sourceTaskListId,
-      task: taskId,
-    });
+    const sourceTaskResponse = await withAuthRetry(() =>
+      tasks.tasks.get({
+        tasklist: sourceTaskListId,
+        task: taskId,
+      })
+    );
 
     const sourceTask = sourceTaskResponse.data;
 
@@ -354,16 +379,20 @@ export class TaskActions {
       status: sourceTask.status,
     };
 
-    const destinationTaskResponse = await tasks.tasks.insert({
-      tasklist: destinationTaskListId,
-      requestBody: taskCopy,
-    });
+    const destinationTaskResponse = await withAuthRetry(() =>
+      tasks.tasks.insert({
+        tasklist: destinationTaskListId,
+        requestBody: taskCopy,
+      })
+    );
 
     // Delete the task from the source list
-    await tasks.tasks.delete({
-      tasklist: sourceTaskListId,
-      task: taskId,
-    });
+    await withAuthRetry(() =>
+      tasks.tasks.delete({
+        tasklist: sourceTaskListId,
+        task: taskId,
+      })
+    );
 
     return {
       content: [

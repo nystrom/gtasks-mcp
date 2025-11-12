@@ -11,7 +11,7 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import fs from "fs";
-import { google, tasks_v1 } from "googleapis";
+import { google, tasks_v1, Auth } from "googleapis";
 import path from "path";
 import { TaskActions, TaskResources } from "./Tasks.js";
 import { TaskListActions } from "./TaskLists.js";
@@ -390,6 +390,34 @@ const credentialsPath = path.join(
   "../.gtasks-server-credentials.json",
 );
 
+let auth: Auth.OAuth2Client | null = null;
+
+function isAuthError(error: any): boolean {
+  if (!error) return false;
+  
+  // Check for HTTP status codes indicating auth errors
+  const status = error.code || error.status || error.response?.status;
+  if (status === 401 || status === 403) return true;
+  
+  // Check for Google API error messages
+  const message = error.message?.toLowerCase() || "";
+  if (message.includes("invalid_grant") || 
+      message.includes("invalid_credentials") ||
+      message.includes("unauthorized") ||
+      message.includes("authentication") ||
+      message.includes("invalid token")) {
+    return true;
+  }
+  
+  // Check for Google API error codes
+  const errorCode = error.code || error.response?.data?.error?.code;
+  if (errorCode === "UNAUTHENTICATED" || errorCode === "PERMISSION_DENIED") {
+    return true;
+  }
+  
+  return false;
+}
+
 async function authenticateAndSaveCredentials() {
   console.log("Launching auth flow…");
   const p = path.join(
@@ -398,12 +426,44 @@ async function authenticateAndSaveCredentials() {
   );
 
   console.log(p);
-  const auth = await authenticate({
+  const authResult = await authenticate({
     keyfilePath: p,
     scopes: ["https://www.googleapis.com/auth/tasks"],
   });
-  fs.writeFileSync(credentialsPath, JSON.stringify(auth.credentials));
+  fs.writeFileSync(credentialsPath, JSON.stringify(authResult.credentials));
   console.log("Credentials saved. You can now run the server.");
+  return authResult.credentials;
+}
+
+async function reloadCredentials() {
+  if (!fs.existsSync(credentialsPath)) {
+    console.error("Credentials not found. Reauthorizing...");
+    await authenticateAndSaveCredentials();
+  }
+  
+  const credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
+  if (!auth) {
+    auth = new google.auth.OAuth2();
+  }
+  auth.setCredentials(credentials);
+  google.options({ auth });
+}
+
+export async function withAuthRetry<T>(
+  fn: () => Promise<T>,
+  retryCount: number = 1
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (isAuthError(error) && retryCount > 0) {
+      console.error("Auth error detected. Reauthorizing...");
+      await authenticateAndSaveCredentials();
+      await reloadCredentials();
+      return await fn();
+    }
+    throw error;
+  }
 }
 
 async function loadCredentialsAndRunServer() {
@@ -414,10 +474,7 @@ async function loadCredentialsAndRunServer() {
     process.exit(1);
   }
 
-  const credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
-  const auth = new google.auth.OAuth2();
-  auth.setCredentials(credentials);
-  google.options({ auth });
+  await reloadCredentials();
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

@@ -3,6 +3,7 @@ import {
   CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { tasks_v1 } from "googleapis";
+import { withAuthRetry } from "./index.js";
 
 export class TaskListActions {
   private static formatTaskList(taskList: tasks_v1.Schema$TaskList) {
@@ -14,9 +15,11 @@ export class TaskListActions {
   }
 
   static async list(request: CallToolRequest, tasks: tasks_v1.Tasks): Promise<CallToolResult> {
-    const taskListsResponse = await tasks.tasklists.list({
-      maxResults: 100,
-    });
+    const taskListsResponse = await withAuthRetry(() =>
+      tasks.tasklists.list({
+        maxResults: 100,
+      })
+    );
 
     const taskLists = taskListsResponse.data.items || [];
     const taskListsText = this.formatTaskLists(taskLists);
@@ -43,9 +46,11 @@ export class TaskListActions {
       title: title,
     };
 
-    const taskListResponse = await tasks.tasklists.insert({
-      requestBody: taskList,
-    });
+    const taskListResponse = await withAuthRetry(() =>
+      tasks.tasklists.insert({
+        requestBody: taskList,
+      })
+    );
 
     return {
       content: [
@@ -75,10 +80,12 @@ export class TaskListActions {
       title: title,
     };
 
-    const taskListResponse = await tasks.tasklists.update({
-      tasklist: taskListId,
-      requestBody: taskList,
-    });
+    const taskListResponse = await withAuthRetry(() =>
+      tasks.tasklists.update({
+        tasklist: taskListId,
+        requestBody: taskList,
+      })
+    );
 
     return {
       content: [
@@ -98,9 +105,11 @@ export class TaskListActions {
       throw new Error("Task list ID is required");
     }
 
-    await tasks.tasklists.delete({
-      tasklist: taskListId,
-    });
+    await withAuthRetry(() =>
+      tasks.tasklists.delete({
+        tasklist: taskListId,
+      })
+    );
 
     return {
       content: [
@@ -120,9 +129,11 @@ export class TaskListActions {
       throw new Error("Task list ID is required");
     }
 
-    const taskListResponse = await tasks.tasklists.get({
-      tasklist: taskListId,
-    });
+    const taskListResponse = await withAuthRetry(() =>
+      tasks.tasklists.get({
+        tasklist: taskListId,
+      })
+    );
 
     const taskList = taskListResponse.data;
     const taskListText = this.formatTaskList(taskList);
