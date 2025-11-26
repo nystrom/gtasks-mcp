@@ -4,6 +4,8 @@ import { TaskActions } from '../dist/Tasks.js';
 // Mock Google Tasks API
 class MockTasks {
   constructor() {
+    this.taskListsListCallCount = 0;
+    this.listCallArgs = [];
     this.tasks = {
       insert: async (params) => ({
         data: {
@@ -32,6 +34,7 @@ class MockTasks {
         }
       }),
       list: async (params) => {
+        this.listCallArgs.push(params);
         const baseTasks = [
           {
             id: 'task1',
@@ -72,11 +75,14 @@ class MockTasks {
     };
 
     this.tasklists = {
-      list: async () => ({
-        data: {
-          items: [{ id: '@default', title: 'My Tasks' }]
-        }
-      })
+      list: async () => {
+        this.taskListsListCallCount++;
+        return {
+          data: {
+            items: [{ id: '@default', title: 'My Tasks' }]
+          }
+        };
+      }
     };
   }
 }
@@ -184,6 +190,65 @@ async function runTests() {
       assert(result.content[0].text.includes('Found 2 tasks'));
     }},
 
+    { name: 'list - should honor taskListId argument without fetching lists', test: async () => {
+      const mockTasks = new MockTasks();
+      const request = { params: { arguments: { taskListId: '@default' } } };
+      await TaskActions.list(request, mockTasks);
+      assert.equal(mockTasks.taskListsListCallCount, 0);
+      assert.equal(mockTasks.listCallArgs[0].tasklist, '@default');
+    }},
+
+    { name: 'list - should filter by provided status', test: async () => {
+      const mockTasks = new MockTasks();
+      const request = {
+        params: {
+          arguments: {
+            status: 'completed'
+          }
+        }
+      };
+      const result = await TaskActions.list(request, mockTasks);
+      assert.equal(result.isError, false);
+      assert(result.content[0].text.includes('Found 1 tasks'));
+      assert(result.content[0].text.includes('Completed Task'));
+    }},
+
+    { name: 'list - should filter by arbitrary field', test: async () => {
+      const mockTasks = new MockTasks();
+      const request = {
+        params: {
+          arguments: {
+            filters: {
+              hidden: true
+            }
+          }
+        }
+      };
+      const result = await TaskActions.list(request, mockTasks);
+      assert.equal(result.isError, false);
+      assert(result.content[0].text.includes('Found 1 tasks'));
+      assert(result.content[0].text.includes('Hidden Task'));
+    }},
+
+    { name: 'list - status argument overrides filters.status', test: async () => {
+      const mockTasks = new MockTasks();
+      const request = {
+        params: {
+          arguments: {
+            status: 'needsAction',
+            filters: {
+              status: 'completed'
+            }
+          }
+        }
+      };
+      const result = await TaskActions.list(request, mockTasks);
+      assert.equal(result.isError, false);
+      assert(result.content[0].text.includes('Found 1 tasks'));
+      assert(result.content[0].text.includes('Active Task'));
+      assert.equal(result.content[0].text.includes('Completed Task'), false);
+    }},
+
     // Search tests
     { name: 'search - should filter by query and respect showCompleted', test: async () => {
       const mockTasks = new MockTasks();
@@ -199,6 +264,23 @@ async function runTests() {
       const result = await TaskActions.search(request, mockTasks);
       assert.equal(result.isError, false);
       assert(result.content[0].text.includes('Found 1 matching tasks'));
+    }},
+    { name: 'search - should respect filters before text match', test: async () => {
+      const mockTasks = new MockTasks();
+      const request = {
+        params: {
+          arguments: {
+            query: 'hidden',
+            filters: {
+              hidden: true
+            }
+          }
+        }
+      };
+      const result = await TaskActions.search(request, mockTasks);
+      assert.equal(result.isError, false);
+      assert(result.content[0].text.includes('Found 1 matching tasks'));
+      assert(result.content[0].text.includes('Hidden Task'));
     }}
   ];
 

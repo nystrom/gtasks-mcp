@@ -11,6 +11,9 @@ import { withAuthRetry } from "./index.js";
 
 const MAX_TASK_RESULTS = 100;
 
+type TaskFilterValue = string | number | boolean | null;
+type TaskFilters = Record<string, TaskFilterValue>;
+
 export class TaskResources {
   static async read(request: ReadResourceRequest, tasks: tasks_v1.Tasks) {
     const taskId = request.params.uri.replace("gtasks:///", "");
@@ -57,6 +60,18 @@ export class TaskResources {
       maxResults: pageSize,
     };
 
+    const args = request.params?.arguments as Record<string, unknown> | undefined;
+    const showCompleted = (args?.showCompleted as boolean) || false;
+    const showHidden = (args?.showHidden as boolean) || false;
+
+    if (showCompleted) {
+      params.showCompleted = true;
+    }
+
+    if (showHidden) {
+      params.showHidden = true;
+    }
+
     if (request.params?.cursor) {
       params.pageToken = request.params.cursor;
     }
@@ -101,7 +116,118 @@ export class TaskActions {
     return taskList.map((task) => this.formatTask(task)).join("\n");
   }
 
-  private static async _list(request: CallToolRequest, tasks: tasks_v1.Tasks, showCompleted: boolean = false, showHidden: boolean = false) {
+  private static normalizeForComparison(value: unknown): string {
+    if (value === undefined || value === null) {
+      return "";
+    }
+    if (typeof value === "string") {
+      return value.toLowerCase();
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+      return value.toString().toLowerCase();
+    }
+    if (Array.isArray(value)) {
+      return value
+        .map((entry) => this.normalizeForComparison(entry))
+        .join(" ");
+    }
+    if (typeof value === "object") {
+      return JSON.stringify(value).toLowerCase();
+    }
+    return String(value).toLowerCase();
+  }
+
+  private static matchesFilters(task: tasks_v1.Schema$Task, filters?: TaskFilters): boolean {
+    if (!filters) {
+      return true;
+    }
+    const taskRecord = task as Record<string, unknown>;
+    return Object.entries(filters).every(([field, expected]) => {
+      const actualValue = taskRecord[field];
+      if (actualValue === undefined) {
+        return false;
+      }
+      const normalizedActual = this.normalizeForComparison(actualValue);
+      const normalizedExpected = this.normalizeForComparison(expected);
+      return normalizedActual === normalizedExpected;
+    });
+  }
+
+  private static sanitizeFilters(filters?: TaskFilters): TaskFilters | undefined {
+    if (!filters) {
+      return undefined;
+    }
+    const validEntries = Object.entries(filters).filter(
+      ([, value]) => value !== null && value !== undefined,
+    );
+    if (validEntries.length === 0) {
+      return undefined;
+    }
+    return Object.fromEntries(validEntries) as TaskFilters;
+  }
+
+  private static filtersWithoutStatus(filters?: TaskFilters): TaskFilters | undefined {
+    if (!filters) {
+      return undefined;
+    }
+    const entries = Object.entries(filters).filter(
+      ([key]) => key !== "status",
+    );
+    if (entries.length === 0) {
+      return undefined;
+    }
+    return Object.fromEntries(entries) as TaskFilters;
+  }
+
+  private static matchesStatus(task: tasks_v1.Schema$Task, status?: tasks_v1.Schema$Task["status"]) {
+    if (!status) {
+      return true;
+    }
+    return task.status === status;
+  }
+
+  private static async _list(
+    request: CallToolRequest,
+    tasks: tasks_v1.Tasks,
+    showCompleted: boolean = false,
+    showHidden: boolean = false,
+    taskListId?: string,
+    status?: tasks_v1.Schema$Task["status"],
+    filters?: TaskFilters,
+  ) {
+    const baseParams: any = {
+      maxResults: MAX_TASK_RESULTS,
+    };
+
+    if (showCompleted) {
+      baseParams.showCompleted = true;
+    } else if (status === "completed") {
+      baseParams.showCompleted = true;
+    }
+
+    if (showHidden) {
+      baseParams.showHidden = true;
+    }
+
+    if (taskListId) {
+      try {
+        const tasksResponse = await withAuthRetry(() =>
+          tasks.tasks.list({
+            tasklist: taskListId,
+            ...baseParams,
+          })
+        );
+        const items = tasksResponse.data.items || [];
+        return items.filter(
+          (task) =>
+            this.matchesStatus(task, status) && this.matchesFilters(task, filters),
+        );
+      } catch (error) {
+        console.error(`Error fetching tasks for list ${taskListId}:`, error);
+        return [];
+      }
+    }
+
     const taskListsResponse = await withAuthRetry(() =>
       tasks.tasklists.list({
         maxResults: MAX_TASK_RESULTS,
@@ -116,23 +242,20 @@ export class TaskActions {
         try {
           const taskListParams: any = {
             tasklist: taskList.id,
-            maxResults: MAX_TASK_RESULTS,
+            ...baseParams,
           };
-
-          if (showCompleted) {
-            taskListParams.showCompleted = true;
-          }
-
-          if (showHidden) {
-            taskListParams.showHidden = true;
-          }
 
           const tasksResponse = await withAuthRetry(() =>
             tasks.tasks.list(taskListParams)
           );
 
           const items = tasksResponse.data.items || [];
-          allTasks = allTasks.concat(items);
+          allTasks = allTasks.concat(
+            items.filter(
+              (task) =>
+                this.matchesStatus(task, status) && this.matchesFilters(task, filters),
+            ),
+          );
         } catch (error) {
           console.error(`Error fetching tasks for list ${taskList.id}:`, error);
         }
@@ -254,10 +377,32 @@ export class TaskActions {
   }
 
   static async list(request: CallToolRequest, tasks: tasks_v1.Tasks) {
-    const showCompleted = request.params.arguments?.showCompleted as boolean || false;
-    const showHidden = request.params.arguments?.showHidden as boolean || false;
+    const args = request.params.arguments as Record<string, unknown> | undefined;
+    const rawFilters = args?.filters as TaskFilters | undefined;
+    const sanitizedFilters = this.sanitizeFilters(rawFilters);
+    const showCompleted = (args?.showCompleted as boolean) || false;
+    const explicitShowHidden = (args?.showHidden as boolean) || false;
+    const hiddenFilterValue = sanitizedFilters?.hidden;
+    const showHidden =
+      explicitShowHidden ||
+      hiddenFilterValue === true ||
+      hiddenFilterValue === "true";
+    const taskListId = args?.taskListId as string | undefined;
+    const explicitStatus = args?.status as tasks_v1.Schema$Task["status"] | undefined;
+    const filterStatus =
+      sanitizedFilters?.status as tasks_v1.Schema$Task["status"] | undefined;
+    const status = explicitStatus ?? filterStatus;
+    const filtersForMatching = this.filtersWithoutStatus(sanitizedFilters);
 
-    const allTasks = await this._list(request, tasks, showCompleted, showHidden);
+    const allTasks = await this._list(
+      request,
+      tasks,
+      showCompleted,
+      showHidden,
+      taskListId,
+      status,
+      filtersForMatching,
+    );
     const taskList = this.formatTaskList(allTasks);
 
     return {
@@ -299,11 +444,33 @@ export class TaskActions {
   }
 
   static async search(request: CallToolRequest, tasks: tasks_v1.Tasks) {
-    const userQuery = request.params.arguments?.query as string;
-    const showCompleted = request.params.arguments?.showCompleted as boolean || false;
-    const showHidden = request.params.arguments?.showHidden as boolean || false;
+    const args = request.params.arguments as Record<string, unknown> | undefined;
+    const rawFilters = args?.filters as TaskFilters | undefined;
+    const sanitizedFilters = this.sanitizeFilters(rawFilters);
+    const userQuery = args?.query as string;
+    const showCompleted = (args?.showCompleted as boolean) || false;
+    const explicitShowHidden = (args?.showHidden as boolean) || false;
+    const hiddenFilterValue = sanitizedFilters?.hidden;
+    const showHidden =
+      explicitShowHidden ||
+      hiddenFilterValue === true ||
+      hiddenFilterValue === "true";
+    const taskListId = args?.taskListId as string | undefined;
+    const explicitStatus = args?.status as tasks_v1.Schema$Task["status"] | undefined;
+    const filterStatus =
+      sanitizedFilters?.status as tasks_v1.Schema$Task["status"] | undefined;
+    const status = explicitStatus ?? filterStatus;
+    const filtersForMatching = this.filtersWithoutStatus(sanitizedFilters);
 
-    const allTasks = await this._list(request, tasks, showCompleted, showHidden);
+    const allTasks = await this._list(
+      request,
+      tasks,
+      showCompleted,
+      showHidden,
+      taskListId,
+      status,
+      filtersForMatching,
+    );
     const filteredItems = allTasks.filter(
       (task) =>
         task.title?.toLowerCase().includes(userQuery.toLowerCase()) ||

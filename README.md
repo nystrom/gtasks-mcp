@@ -3,54 +3,49 @@
 ![gtasks mcp logo](./logo.jpg)
 [![smithery badge](https://smithery.ai/badge/@zcaceres/gtasks)](https://smithery.ai/server/@zcaceres/gtasks)
 
-This MCP server integrates with Google Tasks to allow listing, reading, searching, creating, updating, and deleting tasks.
+This MCP server exposes the entire Google Tasks API with a consistent interface for every endpoint.
 
 ## Components
 
-### Tools
+### Tools (full API coverage)
 
-- **search**
-  - Search for tasks in Google Tasks
-  - Input: `query` (string): Search query
-  - Returns matching tasks with details
+Every Google Tasks endpoint is exposed as an MCP tool named after the underlying client method. All tools share the same input schema:
 
-- **list**
-  - List all tasks in Google Tasks
-  - Optional input: `cursor` (string): Cursor for pagination
-  - Returns a list of all tasks
+```jsonc
+// Endpoint params are top-level arguments; request bodies go in "body"
+{ "tasklist": "@default", "task": "…", "body": { "title": "My Task" } }
+```
 
-- **create**
-  - Create a new task in Google Tasks
-  - Input:
-    - `taskListId` (string, optional): Task list ID
-    - `title` (string, required): Task title
-    - `notes` (string, optional): Task notes
-    - `due` (string, optional): Due date
-  - Returns confirmation of task creation
+Available tool names (dots replaced with dashes to satisfy MCP tool-name rules):
 
-- **update**
-  - Update an existing task in Google Tasks
-  - Input:
-    - `taskListId` (string, optional): Task list ID
-    - `id` (string, required): Task ID
-    - `uri` (string, required): Task URI
-    - `title` (string, optional): New task title
-    - `notes` (string, optional): New task notes
-    - `status` (string, optional): New task status ("needsAction" or "completed")
-    - `due` (string, optional): New due date
-  - Returns confirmation of task update
+- `tasklists-list`, `tasklists-get`, `tasklists-insert`, `tasklists-update`, `tasklists-patch`, `tasklists-delete`
+- `tasks-list`, `tasks-get`, `tasks-insert`, `tasks-update`, `tasks-patch`, `tasks-delete`, `tasks-move`, `tasks-clear`
+- `reauthorize` (refresh OAuth credentials)
 
-- **delete**
-  - Delete a task in Google Tasks
-  - Input:
-    - `taskListId` (string, required): Task list ID
-    - `id` (string, required): Task ID
-  - Returns confirmation of task deletion
+Endpoints requiring parameters:
 
-- **clear**
-  - Clear completed tasks from a Google Tasks task list
-  - Input: `taskListId` (string, required): Task list ID
-  - Returns confirmation of cleared tasks
+- Task list ID is `params.tasklist`
+- Task ID is `params.task`
+- For `tasks.move`, optional `params.parent`/`params.previous` follow the Google Tasks API
+
+Example calls:
+
+```jsonc
+// List tasks in the default list, including completed tasks
+{
+  "name": "tasks-list",
+  "arguments": { "tasklist": "@default", "showCompleted": true }
+}
+
+// Create a new task in a specific list
+{
+  "name": "tasks-insert",
+  "arguments": {
+    "tasklist": "abc123",
+    "body": { "title": "Write docs", "notes": "Add GTTasks examples" }
+  }
+}
+```
 
 ### Resources
 
